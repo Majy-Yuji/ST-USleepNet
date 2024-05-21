@@ -27,7 +27,7 @@ def get_args():
     parser.add_argument('--chs', nargs = '+', default = '16 32 64 128')
     parser.add_argument('--kernal', type = int, default = 3, help = 'kernal')
     parser.add_argument('--wdb', type = bool, default = True)
-    parser.add_argument('--sweep', type = bool, default = True)
+    parser.add_argument('--sweep', type = bool, default = False)
     parser.add_argument('--weightDecay', type = float, default = 0.0008)
     parser.add_argument('--lrStepSize', type = int, default = 10)
     parser.add_argument('--lrGamma', type = int, default = 0.1)

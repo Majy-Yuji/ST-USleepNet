@@ -4,7 +4,10 @@ from tqdm import tqdm
 import torch.optim as optim
 from datetime import datetime
 from utils.dataset import GraphData
-from collections import Counter
+from sklearn.metrics import (
+    classification_report, confusion_matrix,
+    precision_score, recall_score, f1_score, cohen_kappa_score
+)
 
 class Trainer:
     def __init__(self, args, net, G_data):
@@ -46,6 +49,7 @@ class Trainer:
         self.wdb = self.config.wdb
         self.sch = self.config.sch
         self.log_file = 'logs//' + datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + '.txt'
+        self.model_file = 'models//' + datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + '.txt'
 
     def init(self, train_gs, test_gs):
         print('#train: %d, #test: %d' % (len(train_gs), len(test_gs)))
@@ -92,19 +96,14 @@ class Trainer:
         losses, accs, n_samples = [], [], 0
         stage_samples = torch.zeros(5)
         class_accs = torch.zeros(5)
-        # labels = []
-        # preds = []
+        labels = []
+        preds = []
         for batch in tqdm(data, desc=str(epoch), unit='b'):
             cur_len, gs, hs, ys = batch
-            # labels.append(ys)
-            # cur_len 是当前 batch 的长度
-            # gs 是 g.A 的 list
-            # hs 是 g.fea 的 list
-            # ys 是 label 的 list
-            # 把数据放到服务器上
+            labels.append(ys)
             gs, hs, ys = map(self.to_cuda, [gs, hs, ys])
             loss, acc, pred, class_acc, class_num = model(gs, hs, ys)
-            # preds.append(pred)
+            preds.append(pred)
             losses.append(loss * cur_len)
             accs.append(acc * cur_len)
             stage_samples = stage_samples + class_num
@@ -117,7 +116,14 @@ class Trainer:
 
         avg_loss, avg_acc = sum(losses) / n_samples, sum(accs) / n_samples
         class_acc = class_accs / stage_samples
+        concatenated_label = torch.cat(labels, dim=0)
+        one_dimensional_label = concatenated_label.view(-1)
+        label_list = one_dimensional_label.tolist()
+        concatenated_pred = torch.cat(preds, dim=0)
+        one_dimensional_pred = concatenated_pred.view(-1)
+        pred_list = one_dimensional_pred.tolist()
         if optimizer is not None:
+            metric_dict = self.compute_metrics(label_list, pred_list, metric_dict, 'train')
             metric_dict['train_acc'] = avg_acc.item()
             metric_dict['train_loss'] = avg_loss.item()
             metric_dict['train_acc_Weak'] = class_acc[0]
@@ -126,6 +132,7 @@ class Trainer:
             metric_dict['train_acc_N3'] = class_acc[3]
             metric_dict['train_acc_Rem'] = class_acc[4]
         else:
+            metric_dict = self.compute_metrics(label_list, pred_list, metric_dict, 'test')
             metric_dict['test_acc'] = avg_acc.item()
             metric_dict['test_loss'] = avg_loss.item()
             metric_dict['test_acc_Weak'] = class_acc[0]
@@ -133,13 +140,6 @@ class Trainer:
             metric_dict['test_acc_N2'] = class_acc[2]
             metric_dict['test_acc_N3'] = class_acc[3]
             metric_dict['test_acc_Rem'] = class_acc[4]
-        # concatenated_label = torch.cat(labels, dim=0)
-        # one_dimensional_label = concatenated_label.view(-1)
-        # # print(Counter(yss_list))
-        # label_list = one_dimensional_label.tolist()
-        # concatenated_pred = torch.cat(preds, dim=0)
-        # one_dimensional_pred = concatenated_pred.view(-1)
-        # pred_list = one_dimensional_pred.tolist()
         # df = pd.DataFrame({'pred': pred_list, 'label': label_list})
         # if optimizer is not None:
         #     df.to_csv('Other//train_eval//' + str(epoch) + '_train.csv')
@@ -148,8 +148,9 @@ class Trainer:
         return avg_loss.item(), avg_acc.item(), metric_dict, class_acc, stage_samples
 
     def train(self):
-        max_acc = 0.0
-        train_str = 'Train epoch %d: loss %.5f acc %.5f'
+        max_train_acc = 0.0
+        max_test_acc = 0.0
+        train_str = 'Train epoch %d: loss %.5f acc %.5f max %.5f'
         test_str = 'Test epoch %d: loss %.5f acc %.5f max %.5f'
         line_str = '%d:\t%.5f\n'
         stage_acc_str = 'Weak acc %.5f N1 acc %.5f N2 acc %.5f N3 acc %.5f REM acc %.5f'
@@ -163,6 +164,8 @@ class Trainer:
             print(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
             print(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
                                    stage_samples[3], stage_samples[4]))
+            max_train_acc = max(max_train_acc, acc)
+            metric_dict['max_train_acc'] = max_train_acc
             if self.wdb:
                 if e_id == 0:
                     train_label = {"train_Weak": stage_samples[0],
@@ -173,7 +176,7 @@ class Trainer:
                     wandb.config.update(train_label)
 
             with open(self.log_file, 'a+') as f:
-                f.write(train_str % (e_id, loss, acc))
+                f.write(train_str % (e_id, loss, acc, max_train_acc))
                 f.write(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
                 f.write(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
                                          stage_samples[3], stage_samples[4]))
@@ -186,8 +189,11 @@ class Trainer:
                     self.scheduler.step()
                 elif self.config.sch == 2:
                     self.scheduler.step(loss)
-            max_acc = max(max_acc, acc)
-            print(test_str % (e_id, loss, acc, max_acc))
+            max_test_acc = max(max_test_acc, acc)
+            metric_dict['max_test_acc'] = max_test_acc
+            if acc == max_test_acc:
+                torch.save(self.net, self.model_file)
+            print(test_str % (e_id, loss, acc, max_test_acc))
             print(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
             print(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
                                    stage_samples[3], stage_samples[4]))
@@ -202,10 +208,19 @@ class Trainer:
                     wandb.config.update(test_label)
 
             with open(self.log_file, 'a+') as f:
-                f.write(test_str % (e_id, loss, acc, max_acc))
+                f.write(test_str % (e_id, loss, acc, max_test_acc))
                 f.write(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
                 f.write(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
                                          stage_samples[3], stage_samples[4]))
 
         with open(self.log_file, 'a+') as f:
-            f.write(line_str % (self.fold_idx, max_acc))
+            f.write(line_str % (self.fold_idx, max_test_acc))
+
+    def compute_metrics(self, y_true, y_pred, metric_dict, name):
+        metric_dict[name + '_F1_score'] = f1_score(y_true, y_pred, average='weighted')
+        metric_dict[name + '_precision'] = precision_score(y_true, y_pred, average='weighted')
+        metric_dict[name + '_recall'] = recall_score(y_true, y_pred, average='weighted')
+        metric_dict[name + '_kappa'] = cohen_kappa_score(y_true, y_pred)
+        metric_dict[name + '_classification_report'] = classification_report(y_true, y_pred)
+        metric_dict[name + '_confusion_matrix'] = confusion_matrix(y_true, y_pred)
+        return metric_dict

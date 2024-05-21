@@ -4,7 +4,7 @@ metric:
   goal: minimize
 parameters:
   cuda:
-    values: [1]
+    values: [3]
   seed:
     values: [1, 42, 56, 100]
   data:
