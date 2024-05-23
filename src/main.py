@@ -10,22 +10,24 @@ from utils.data_loader import FileLoader
 
 def get_args():
     parser = argparse.ArgumentParser(description='Args for graph predition')
-    parser.add_argument('--cuda', default = 1, type = int, help='CUDA device number')
+    parser.add_argument('--cuda', default = 2, type = int, help = 'CUDA device number')
     parser.add_argument('--seed', type = int, default = 1, help = 'seed')
     parser.add_argument('--data', default = 'ISRUC_S3_10', help = 'data folder name')
     parser.add_argument('--fold', type = int, default = 2, help = 'fold (1..10)')
-    parser.add_argument('--num_epochs', type = int, default = 100, help = 'epochs')
-    parser.add_argument('--batch', type = int, default = 12, help = 'batch size')
+    parser.add_argument('--num_epochs', type = int, default = 80, help = 'epochs')
+    parser.add_argument('--batch', type = int, default = 64, help = 'batch size')
     parser.add_argument('--lr', type = float, default = 5e-4, help = 'learning rate')
     parser.add_argument('--drop_n', type = float, default = 0.3, help = 'drop net')
     parser.add_argument('--drop_c', type = float, default = 0.2, help = 'drop output')
     parser.add_argument('--act_n', type = str, default = 'ELU', help = 'network act')
     parser.add_argument('--act_c', type = str, default = 'ELU', help = 'output act')
-    parser.add_argument('--ks', nargs = '+', default = '0.9 0.8 0.7')
-    parser.add_argument('--cs', nargs = '+', default = '0.5 0.5 0.5')
-    parser.add_argument('--sch', type=int, default = 2, help = 'scheduler')
-    parser.add_argument('--chs', nargs = '+', default = '16 32 64 128')
-    parser.add_argument('--kernal', type = int, default = 3, help = 'kernal')
+    parser.add_argument('--gcn_h', nargs = '+', default = '4096 2048 1024 512 512', help = 'GCN hidden layer')
+    parser.add_argument('--l_n', type = int, default = 4, help = 'The layer of Unet')
+    parser.add_argument('--ks', nargs = '+', default = '0.9 0.8 0.7 0.6')
+    parser.add_argument('--cs', nargs = '+', default = '0.5 0.5 0.5 0.2')
+    parser.add_argument('--sch', type = int, default = 2, help = 'scheduler')
+    parser.add_argument('--chs', nargs = '+', default = '32 64 128 256 512')
+    parser.add_argument('--kernal', type = int, default = 9, help = 'kernal')
     parser.add_argument('--wdb', type = bool, default = True)
     parser.add_argument('--sweep', type = bool, default = False)
     parser.add_argument('--weightDecay', type = float, default = 0.0008)
@@ -57,11 +59,13 @@ def main():
             project="Sleep Unet"
         )
         config = wandb.config
-    else:
+    elif args.wdb:
         wandb.init(
             project="Sleep Unet",
             config = args
         )
+        config = args
+    else:
         config = args
     set_random(config.seed)
     start = time.time()

@@ -8,11 +8,12 @@ def calculate_same_padding(kernel_size):
     return (kernel_size - 1) // 2
 
 class GraphUnet(nn.Module):
-    def __init__(self, ks, cs, kernal, chs, dim, act, drop_p):
+    def __init__(self, ks, cs, kernal, chs, gcn_h, l_n, dim, act, drop_p):
         super(GraphUnet, self).__init__()
         self.ks = [float(num) for num in ks.split(" ")]
         self.cs = [float(num) for num in cs.split(" ")]
-        self.channels = [1] +  [int(num) for num in chs.split(" ")]
+        self.gcn_h = [int(num) for num in gcn_h.split(" ")]
+        self.channels = [1] + [int(num) for num in chs.split(" ")]
         self.kernal_size = kernal
         self.padding = calculate_same_padding(self.kernal_size)
         # Down ModuleLists
@@ -25,7 +26,7 @@ class GraphUnet(nn.Module):
         self.up_gcns = nn.ModuleList()
         self.unpools = nn.ModuleList()
         self.gunpools = nn.ModuleList()
-        self.l_n = len(self.ks)
+        self.l_n = l_n
         feature_dim = dim
         for i in range(self.l_n):
             # Down Blocks
@@ -34,19 +35,19 @@ class GraphUnet(nn.Module):
             self.pools.append(nn.MaxPool2d(kernel_size = (1, int(1/self.cs[i])),
                                            stride = (1, int(1/self.cs[i])), return_indices=True))
             feature_dim = int(feature_dim * self.cs[i])
-            self.down_gcns.append(GCN(feature_dim, feature_dim, act, drop_p))
+            self.down_gcns.append(GCN(feature_dim, self.gcn_h[i], feature_dim, act, drop_p))
             self.gpools.append(gPool(float(self.ks[i]), feature_dim, self.channels[i+1], drop_p))
             # Up Blocks
             self.up_cnns.append(CNN(self.channels[i+2], self.channels[i+1], self.kernal_size, drop_p))
             self.gunpools.append(gUnpool())
-            self.up_gcns.append(GCN(feature_dim, feature_dim, act, drop_p))
+            self.up_gcns.append(GCN(feature_dim, self.gcn_h[i], feature_dim, act, drop_p))
             self.unpools.append(Unpool(self.cs[i]))
             self.up_cnns.append(CNN(self.channels[i+2], self.channels[i+1], self.kernal_size, drop_p))
             self.up_cnns.append(CNN(self.channels[i+1], self.channels[i+1], self.kernal_size, drop_p))
         # Bottom Block
         self.bottom_cnn1 = CNN(self.channels[-2], self.channels[-1], self.kernal_size, drop_p)
         self.bottom_cnn2 = CNN(self.channels[-1], self.channels[-1], self.kernal_size, drop_p)
-        self.bottom_gcn = GCN(feature_dim, feature_dim, act, drop_p)
+        self.bottom_gcn = GCN(feature_dim, self.gcn_h[-1], feature_dim, act, drop_p)
         self.last_cnn = CNN(self.channels[1], self.channels[0], self.kernal_size, drop_p)
 
 
@@ -102,15 +103,16 @@ class GraphUnet(nn.Module):
         h = self.last_cnn(h)
         return h
 
-# 简化版 GCN, 原模型 dropout 放在前面了
 class GCN(nn.Module):
-    def __init__(self, in_dim, out_dim, act, p):
+    def __init__(self, in_dim, hidden_dim, out_dim, act, p):
         super(GCN, self).__init__()
         self.in_dim = in_dim
+        self.hidden_dim = hidden_dim
         self.out_dim = out_dim
-        self.proj = nn.Linear(in_dim, out_dim)
+        self.proj1 = nn.Linear(in_dim, hidden_dim)
+        self.proj2 = nn.Linear(hidden_dim, out_dim)
         self.act = act
-        self.drop = nn.Dropout(p=p) if p > 0.0 else nn.Identity()
+        self.drop = nn.Dropout(p = p) if p > 0.0 else nn.Identity()
 
     def forward(self, g, h):
         # g: [batch_size, node, node]
@@ -121,11 +123,22 @@ class GCN(nn.Module):
             hs = torch.matmul(g[0], h[0])
             o_hs.append(hs)
         h = torch.stack(o_hs)
-        h = self.proj(h)
+
+        h = self.proj1(h)
+        h = self.act(h)
+        h = self.drop(h)
+
+        o_hs = []
+        for i in range(h.shape[0]):
+            hs = torch.matmul(g[0], h[0])
+            o_hs.append(hs)
+        h = torch.stack(o_hs)
+
+        h = self.proj2(h)
         h = self.act(h)
         return h
 
-# CNN + BN + Dropout + Relu
+# CNN + BN + Dropout + ELU
 class CNN(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, drop_p):
         super(CNN, self).__init__()

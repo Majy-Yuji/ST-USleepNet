@@ -5,7 +5,7 @@ import torch.optim as optim
 from datetime import datetime
 from utils.dataset import GraphData
 from sklearn.metrics import (
-    classification_report, confusion_matrix,
+    # classification_report, confusion_matrix,
     precision_score, recall_score, f1_score, cohen_kappa_score
 )
 
@@ -27,6 +27,8 @@ class Trainer:
                     "drop_n": args.drop_n,
                     "drop_c": args.drop_c,
                     "act_n": args.act_n,
+                    "gcn_h": args.gcn_h,
+                    "l_n": args.l_n,
                     "ks": args.ks,
                     "cs": args.cs,
                     "chs": args.chs,
@@ -49,7 +51,7 @@ class Trainer:
         self.wdb = self.config.wdb
         self.sch = self.config.sch
         self.log_file = 'logs//' + datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + '.txt'
-        self.model_file = 'models//' + datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + '.txt'
+        self.model_file = 'models//' + datetime.now().strftime("%Y-%m-%d-%H-%M-%S") + '.pth'
 
     def init(self, train_gs, test_gs):
         print('#train: %d, #test: %d' % (len(train_gs), len(test_gs)))
@@ -90,9 +92,6 @@ class Trainer:
         return device
 
     def run_epoch(self, epoch, data, model, optimizer, metric_dict):
-        # with open('Other//train_eval//' + str(epoch) + '_train.txt', 'w') as f:
-        #     for name, param in model.named_parameters():
-        #         f.write(f"Layer: {name} | Size: {param.size()} | Values : {param[:2].tolist()} \n")
         losses, accs, n_samples = [], [], 0
         stage_samples = torch.zeros(5)
         class_accs = torch.zeros(5)
@@ -140,32 +139,27 @@ class Trainer:
             metric_dict['test_acc_N2'] = class_acc[2]
             metric_dict['test_acc_N3'] = class_acc[3]
             metric_dict['test_acc_Rem'] = class_acc[4]
-        # df = pd.DataFrame({'pred': pred_list, 'label': label_list})
-        # if optimizer is not None:
-        #     df.to_csv('Other//train_eval//' + str(epoch) + '_train.csv')
-        # else:
-        #     df.to_csv('Other//train_eval//' + str(epoch) + '_eval.csv')
         return avg_loss.item(), avg_acc.item(), metric_dict, class_acc, stage_samples
 
     def train(self):
         max_train_acc = 0.0
         max_test_acc = 0.0
-        train_str = 'Train epoch %d: loss %.5f acc %.5f max %.5f'
-        test_str = 'Test epoch %d: loss %.5f acc %.5f max %.5f'
+        train_str = 'Train epoch %d: loss %.5f acc %.5f max %.5f\n'
+        test_str = 'Test epoch %d: loss %.5f acc %.5f max %.5f\n'
         line_str = '%d:\t%.5f\n'
-        stage_acc_str = 'Weak acc %.5f N1 acc %.5f N2 acc %.5f N3 acc %.5f REM acc %.5f'
-        stage_num_str = 'Weak num %d N1 num %d N2 num %d N3 num %d REM num %d'
+        stage_acc_str = 'Weak acc %.5f N1 acc %.5f N2 acc %.5f N3 acc %.5f REM acc %.5f\n'
+        stage_num_str = 'Weak num %d N1 num %d N2 num %d N3 num %d REM num %d\n'
         for e_id in range(self.config.num_epochs):
             metric_dict = {}
             self.net.train()
             loss, acc, metric_dict, class_acc, stage_samples = self.run_epoch(
                 e_id, self.train_d, self.net, self.optimizer, metric_dict)
-            print(train_str % (e_id, loss, acc))
+            max_train_acc = max(max_train_acc, acc)
+            metric_dict['max_train_acc'] = max_train_acc
+            print(train_str % (e_id, loss, acc, max_train_acc))
             print(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
             print(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
                                    stage_samples[3], stage_samples[4]))
-            max_train_acc = max(max_train_acc, acc)
-            metric_dict['max_train_acc'] = max_train_acc
             if self.wdb:
                 if e_id == 0:
                     train_label = {"train_Weak": stage_samples[0],
@@ -221,6 +215,6 @@ class Trainer:
         metric_dict[name + '_precision'] = precision_score(y_true, y_pred, average='weighted')
         metric_dict[name + '_recall'] = recall_score(y_true, y_pred, average='weighted')
         metric_dict[name + '_kappa'] = cohen_kappa_score(y_true, y_pred)
-        metric_dict[name + '_classification_report'] = classification_report(y_true, y_pred)
-        metric_dict[name + '_confusion_matrix'] = confusion_matrix(y_true, y_pred)
+        # metric_dict[name + '_classification_report'] = classification_report(y_true, y_pred)
+        # metric_dict[name + '_confusion_matrix'] = confusion_matrix(y_true, y_pred)
         return metric_dict

@@ -96,7 +96,7 @@ class FileLoader(object):
         # 依次读取每一个 Graph 的数据，并形成 Create graph 进度条
         # desc 是在进度条最开始显示的
         # unit 是显示的速度的单位
-        for i in tqdm(range(n_g), desc="Create graph", unit='graphs'):
+        for i in tqdm(range(n_g), desc = "Create graph", unit = 'graphs'):
             g = self.gen_graph(f)
             g_list.append(g)
 

@@ -9,7 +9,8 @@ class GNet(nn.Module):
         self.n_act = getattr(nn, config.act_n)()
         self.c_act = getattr(nn, config.act_c)()
         self.g_unet = GraphUnet(
-            config.ks, config.cs, config.kernal, config.chs, in_dim, self.n_act, config.drop_n)
+            config.ks, config.cs, config.kernal, config.chs,
+            config.gcn_h, config.l_n, in_dim, self.n_act, config.drop_n)
         self.out_l = nn.Linear(in_dim, n_classes)
         self.out_drop = nn.Dropout(p = config.drop_c)
         Initializer.weights_init(self)
@@ -26,22 +27,6 @@ class GNet(nn.Module):
         gs = norm_g(gs)
         hs = self.g_unet(gs, hs)
         return hs
-
-    # def embed(self, gs, hs):
-    #     o_hs = []
-    #     # gs 和 hs 是一个 batch 里的数据，分别拿出来处理
-    #     for g, h in zip(gs, hs):
-    #         h = self.embed_one(g, h)
-    #         o_hs.append(h)
-    #     hs = torch.stack(o_hs)
-    #     return hs
-    #
-    # def embed_one(self, g, h):
-    #     # 对图数据进行归一化
-    #     g = norm_g(g)
-    #     # 在这里进入 U-net
-    #     hs = self.g_unet(g, h)
-    #     return hs
 
     def classify(self, h):
         h = self.out_drop(h)
