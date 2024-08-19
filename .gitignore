@@ -1,8 +1,0 @@
-.idea/
-data/
-Other/
-!Other/model.xlsx
-src/try_sth.py
-src/try_wandb.py
-src/MLP.py
-src/CNN.py

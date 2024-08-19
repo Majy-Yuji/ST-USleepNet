@@ -20,7 +20,6 @@ class GraphData(object):
 
     def __getitem__(self, idx):
         g = self.data[idx]
-        # 邻接矩阵, 图特征, 图标签
         return g.A, g.feas.float(), g.label
 
     def __iter__(self):
@@ -37,7 +36,7 @@ class GraphData(object):
         gs, hs, labels = map(list, zip(*data))
         return len(gs), gs, hs, torch.LongTensor(labels)
 
-    def loader(self, batch, shuffle, *args):
+    def loader(self, batch, shuffle):
         self.batch = batch
         self.shuffle = shuffle
         if shuffle:

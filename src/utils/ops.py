@@ -4,7 +4,6 @@ import numpy as np
 import torch.nn.functional as F
 
 def calculate_same_padding(kernel_size):
-    # 对于 stride = 1, dilation = 1 的情况
     return (kernel_size - 1) // 2
 
 class GraphUnet(nn.Module):
@@ -14,14 +13,11 @@ class GraphUnet(nn.Module):
         self.cs = [float(num) for num in cs.split(" ")]
         self.gcn_h = [int(num) for num in gcn_h.split(" ")]
         self.channels = [1] + [int(num) for num in chs.split(" ")]
-        self.kernal_size = kernal
-        self.padding = calculate_same_padding(self.kernal_size)
-        # Down ModuleLists
+        self.kernal_size = [int(num) for num in kernal.split(" ")]
         self.down_cnns = nn.ModuleList()
         self.down_gcns = nn.ModuleList()
         self.pools = nn.ModuleList()
         self.gpools = nn.ModuleList()
-        # Down ModuleLists
         self.up_cnns = nn.ModuleList()
         self.up_gcns = nn.ModuleList()
         self.unpools = nn.ModuleList()
@@ -29,79 +25,60 @@ class GraphUnet(nn.Module):
         self.l_n = l_n
         feature_dim = dim
         for i in range(self.l_n):
-            # Down Blocks
-            self.down_cnns.append(CNN(self.channels[i], self.channels[i+1], self.kernal_size, drop_p))
-            self.down_cnns.append(CNN(self.channels[i+1], self.channels[i+1], self.kernal_size, drop_p))
+            self.down_cnns.append(CNN(self.channels[i], self.channels[i+1], self.kernal_size[i], drop_p))
+            self.down_cnns.append(CNN(self.channels[i+1], self.channels[i+1], self.kernal_size[i], drop_p))
             self.pools.append(nn.MaxPool2d(kernel_size = (1, int(1/self.cs[i])),
                                            stride = (1, int(1/self.cs[i])), return_indices=True))
             feature_dim = int(feature_dim * self.cs[i])
             self.down_gcns.append(GCN(feature_dim, self.gcn_h[i], feature_dim, act, drop_p))
-            self.gpools.append(gPool(float(self.ks[i]), feature_dim, self.channels[i+1], drop_p))
-            # Up Blocks
-            self.up_cnns.append(CNN(self.channels[i+2], self.channels[i+1], self.kernal_size, drop_p))
+            self.gpools.append(gPool(float(self.ks[i]), feature_dim, drop_p))
+            self.up_cnns.append(CNN(self.channels[i+2], self.channels[i+1], self.kernal_size[i+1], drop_p))
             self.gunpools.append(gUnpool())
             self.up_gcns.append(GCN(feature_dim, self.gcn_h[i], feature_dim, act, drop_p))
             self.unpools.append(Unpool(self.cs[i]))
-            self.up_cnns.append(CNN(self.channels[i+2], self.channels[i+1], self.kernal_size, drop_p))
-            self.up_cnns.append(CNN(self.channels[i+1], self.channels[i+1], self.kernal_size, drop_p))
-        # Bottom Block
-        self.bottom_cnn1 = CNN(self.channels[-2], self.channels[-1], self.kernal_size, drop_p)
-        self.bottom_cnn2 = CNN(self.channels[-1], self.channels[-1], self.kernal_size, drop_p)
+            self.up_cnns.append(CNN(self.channels[i+2], self.channels[i+1], self.kernal_size[i], drop_p))
+            self.up_cnns.append(CNN(self.channels[i+1], self.channels[i+1], self.kernal_size[i], drop_p))
+        self.bottom_cnn1 = CNN(self.channels[-2], self.channels[-1], self.kernal_size[-1], drop_p)
+        self.bottom_cnn2 = CNN(self.channels[-1], self.channels[-1], self.kernal_size[-1], drop_p)
         self.bottom_gcn = GCN(feature_dim, self.gcn_h[-1], feature_dim, act, drop_p)
-        self.last_cnn = CNN(self.channels[1], self.channels[0], self.kernal_size, drop_p)
+        self.last_cnn = CNN(self.channels[1], 5, self.kernal_size[0], drop_p)
 
 
     def forward(self, g, h):
-        # 记录最原始邻接矩阵的形状（用于 gUnPool）
         adj_ms = []
         findices_list = []
         gindices_list = []
         down_couts = []
         down_gouts = []
-        # 加一维通道数
         h = torch.unsqueeze(h, 1)
-        # Down Blocks
         for i in range(self.l_n):
-            # 两层 CNN
             h = self.down_cnns[2 * i](h)
             h = self.down_cnns[2 * i + 1](h)
-            # 将 CNN 的输出存入 down_couts
             down_couts.append(h)
-            # 进行 MaxPool
             h, findices = self.pools[i](h)
-            # 获取保留下的特征编号
             findices_list.append(findices)
-            # GCN
             h = self.down_gcns[i](g, h)
-            # 将其邻接矩阵存入 adj_ms
             adj_ms.append(g)
-            # 将 GCN 输出存入 down_gouts
             down_gouts.append(h)
-            # 进行 gpool
             g, h, gindices = self.gpools[i](g, h)
-            # 获取保留下的节点编号
             gindices_list.append(gindices)
-        # Bottom Block
         h = self.bottom_cnn1(h)
         h = self.bottom_cnn2(h)
         h = self.bottom_gcn(g, h)
-        # Up Blocks
+        salient_node = gindices_list[-1]
+        salient_spacial = g
         for i in range(self.l_n):
-            # 获取反向 ID
             up_idx = self.l_n - i - 1
-            # 先 CNN
             h = self.up_cnns[3 * up_idx](h)
-            # 进行 gUnpool + concat
             g, h = self.gunpools[up_idx](adj_ms[up_idx], h, down_gouts[up_idx], gindices_list[up_idx])
-            # 使用 GCN
+            if i == self.l_n - 1:
+                ts_trasaction = g
             h = self.up_gcns[up_idx](g, h)
-            # Unpool (Unpool + CNN + Concat)
             h = self.unpools[up_idx](h, findices_list[up_idx], down_couts[up_idx])
             h = self.up_cnns[3 * up_idx + 1](h)
             h = self.up_cnns[3 * up_idx + 2](h)
-        # TODO: 删除与原始张量相加
         h = self.last_cnn(h)
-        return h
+        return h, salient_spacial, salient_node, ts_trasaction
 
 class GCN(nn.Module):
     def __init__(self, in_dim, hidden_dim, out_dim, act, p):
@@ -115,11 +92,11 @@ class GCN(nn.Module):
         self.drop = nn.Dropout(p = p) if p > 0.0 else nn.Identity()
 
     def forward(self, g, h):
-        # g: [batch_size, node, node]
-        # h: [batch_size, channel_size, node, feature]
         h = self.drop(h)
         o_hs = []
         for i in range(h.shape[0]):
+            h = h.to(torch.float32)
+            g = g.to(torch.float32)
             hs = torch.matmul(g[0], h[0])
             o_hs.append(hs)
         h = torch.stack(o_hs)
@@ -138,7 +115,6 @@ class GCN(nn.Module):
         h = self.act(h)
         return h
 
-# CNN + BN + Dropout + ELU
 class CNN(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, drop_p):
         super(CNN, self).__init__()
@@ -160,7 +136,7 @@ class CNN(nn.Module):
 
 
 class gPool(nn.Module):
-    def __init__(self, k, fea_dim, channel_dim, p):
+    def __init__(self, k, fea_dim, p):
         super(gPool, self).__init__()
         self.k = k
         self.sigmoid = nn.Sigmoid()
@@ -170,12 +146,9 @@ class gPool(nn.Module):
 
     def forward(self, g, h):
         Z = self.drop(h)
-        weights = self.proj(Z).squeeze()
-        # [batch_size, channel_num, node_dim]
-        weights = weights.transpose(0, 1)
-        # TODO: 可以尝试其他改动（关于计算 top_k）
-        weights = weights.permute(1, 2, 0)
-        weights = self.pool(weights).squeeze()
+        weights = self.proj(Z).squeeze(-1)
+        weights = weights.transpose(1, 2)
+        weights = self.pool(weights).squeeze(-1)
         scores = self.sigmoid(weights)
         return top_k_graph(scores, g, h, self.k)
 
@@ -188,7 +161,6 @@ class gUnpool(nn.Module):
         new_h = h.new_zeros([h.shape[0], h.shape[1], g.shape[1], h.shape[-1]])
         for i in range(h.shape[0]):
             new_h[i][:, idx[i], :] = h[i]
-        # add weights
         new_h = new_h.add(pre_h)
         return g, new_h
 
@@ -200,7 +172,6 @@ class Unpool(nn.Module):
 
     def forward(self, x, indices, pre_x):
         x = self.unpool(x, indices, output_size = pre_x.shape)
-        # TODO: 从 add 改为 cancat
         result = torch.cat((x, pre_x), dim = 1)
         return result
 
@@ -229,7 +200,6 @@ def top_k_graph(scores, g, h, k):
     return g, new_h, idx
 
 
-# 对权重进行归一化
 def norm_g(g):
     degrees = torch.sum(g, 1)
     g = g / degrees.unsqueeze(1)
