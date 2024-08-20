@@ -182,10 +182,9 @@ class Trainer:
     def train(self):
         max_train_acc = 0.0
         max_val_acc = 0.0
-        max_test_acc = 0.0
         train_str = 'Train epoch %d: loss %.5f acc %.5f max %.5f\n'
         val_str = 'Val epoch %d: loss %.5f acc %.5f max %.5f\n'
-        test_str = 'Test epoch %d: loss %.5f acc %.5f max %.5f\n'
+        test_str = 'Test epoch %d: loss %.5f acc %.5f\n'
         stage_acc_str = 'Weak acc %.5f N1 acc %.5f N2 acc %.5f N3 acc %.5f REM acc %.5f\n'
         stage_num_str = 'Weak num %d N1 num %d N2 num %d N3 num %d REM num %d\n'
         metric_str = 'F1 %.5f Precision %.5f Recall %.5f Kappa %.5f\n'
@@ -229,7 +228,36 @@ class Trainer:
             max_val_acc = max(max_val_acc, acc)
             metric_dict['max_val_acc'] = max_val_acc
             if acc == max_val_acc:
+                # save model
                 torch.save(self.net, self.model_file)
+                # evaluation on test set
+                with torch.no_grad():
+                    loss, acc, metric_dict, class_acc, stage_samples, f1, precision, recall, kappa = self.run_epoch(
+                        e_id, self.test_d, self.net, None, metric_dict, False, 'test')
+                print(test_str % (e_id, loss, acc))
+                print(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
+                print(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
+                                    stage_samples[3], stage_samples[4]))
+                print(metric_str % (f1, precision, recall, kappa))
+
+                if self.wdb:
+                    wandb.log(metric_dict)
+                    if e_id == 0:
+                        test_label = {"test_Weak": stage_samples[0],
+                                    "test_N1": stage_samples[1],
+                                    "test_N2": stage_samples[2],
+                                    "test_N3": stage_samples[3],
+                                    "test_REM": stage_samples[4]}
+                        wandb.config.update(test_label)
+
+                with open(self.log_file, 'a+') as f:
+                    f.write(test_str % (e_id, loss, acc))
+                    f.write(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
+                    f.write(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
+                                            stage_samples[3], stage_samples[4]))
+                    f.write(metric_str % (f1, precision, recall, kappa))
+                    f.write("\n")
+
             print(val_str % (e_id, loss, acc, max_val_acc))
             print(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
             print(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
@@ -246,36 +274,6 @@ class Trainer:
 
             with open(self.log_file, 'a+') as f:
                 f.write(val_str % (e_id, loss, acc, max_val_acc))
-                f.write(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
-                f.write(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
-                                         stage_samples[3], stage_samples[4]))
-                f.write(metric_str % (f1, precision, recall, kappa))
-                f.write("\n")
-
-            # self.net.eval()
-            with torch.no_grad():
-                loss, acc, metric_dict, class_acc, stage_samples, f1, precision, recall, kappa = self.run_epoch(
-                    e_id, self.test_d, self.net, None, metric_dict, False, 'test')
-            max_test_acc = max(max_test_acc, acc)
-            metric_dict['max_test_acc'] = max_test_acc
-            print(test_str % (e_id, loss, acc, max_test_acc))
-            print(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
-            print(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
-                                   stage_samples[3], stage_samples[4]))
-            print(metric_str % (f1, precision, recall, kappa))
-
-            if self.wdb:
-                wandb.log(metric_dict)
-                if e_id == 0:
-                    test_label = {"test_Weak": stage_samples[0],
-                                  "test_N1": stage_samples[1],
-                                  "test_N2": stage_samples[2],
-                                  "test_N3": stage_samples[3],
-                                  "test_REM": stage_samples[4]}
-                    wandb.config.update(test_label)
-
-            with open(self.log_file, 'a+') as f:
-                f.write(test_str % (e_id, loss, acc, max_test_acc))
                 f.write(stage_acc_str % (class_acc[0], class_acc[1], class_acc[2], class_acc[3], class_acc[4]))
                 f.write(stage_num_str % (stage_samples[0], stage_samples[1], stage_samples[2],
                                          stage_samples[3], stage_samples[4]))
