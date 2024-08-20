@@ -8,8 +8,8 @@ class GNet(nn.Module):
         super(GNet, self).__init__()
         self.n_act = getattr(nn, config.act_n)()
         self.c_act = getattr(nn, config.act_c)()
-        self.num_patch = config.num_patch
-        self.patch_width = config.num_node
+        self.num_slice = config.num_slice
+        self.slice_width = config.num_node
         self.g_unet = GraphUnet(
             config.ks, config.cs, config.kernal, config.chs,
             config.gcn_h, config.l_n, in_dim, self.n_act, config.drop_n)
@@ -32,9 +32,9 @@ class GNet(nn.Module):
 
     def classify(self, h):
         h = self.out_drop(h)
-        patches = [h[:, :, i * self.patch_width : (i + 1) * self.patch_width]
-                   for i in range(self.num_patch)]
-        embedding = torch.cat(patches, dim = 3)
+        slices = [h[:, :, i * self.slice_width : (i + 1) * self.slice_width]
+                   for i in range(self.num_slice)]
+        embedding = torch.cat(slices, dim = 3)
         h = embedding.mean(dim = 2, keepdim = False)
         h = torch.relu(h)
         h = self.outl(h).squeeze()

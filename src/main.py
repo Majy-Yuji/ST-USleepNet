@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument('--seed', type = int, default = 1, help = 'seed')
     parser.add_argument('--data', default = 'ISRUC_S3', help = 'data folder name')
     parser.add_argument('--num_node', type = int, default = 10, help = 'num of channels')
-    parser.add_argument('--num_patch', type = int, default = 5, help='Number of Patch')
+    parser.add_argument('--num_slice', type = int, default = 5, help='Number of Slice')
     parser.add_argument('--feat_dim', type = int, default = 600, help='Feature Dim')
     parser.add_argument('--wdb', type = bool, default = False)
     parser.add_argument('--sweep', type = bool, default = False)

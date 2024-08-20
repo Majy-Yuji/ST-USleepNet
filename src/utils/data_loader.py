@@ -49,7 +49,7 @@ class FileLoader(object):
         self.delta_p = args.delta_p
         self.num_class = args.num_class
         self.feat_dim = args.feat_dim
-        self.num_patch = args.num_patch
+        self.num_slice = args.num_slice
         self.num_node = args.num_node
 
     def line_genor(self, lines):
@@ -73,20 +73,20 @@ class FileLoader(object):
     def process_g(self, g):
         node_features = []
         num_node = self.num_node
-        for j in range(self.num_patch * num_node):
+        for j in range(self.num_slice * num_node):
             node_features.append(g.nodes[j]['features'])
         node_features = np.array(node_features)
         g.feas = torch.tensor(node_features)
         A = torch.FloatTensor(nx.to_numpy_array(g))
         g.A = A + torch.eye(g.number_of_nodes())
-        time_matrix = np.zeros((self.num_patch * num_node, self.num_patch * num_node))
-        for i in range(self.num_patch):
-            for j in range(self.num_patch):
+        time_matrix = np.zeros((self.num_slice * num_node, self.num_slice * num_node))
+        for i in range(self.num_slice):
+            for j in range(self.num_slice):
                 time_matrix[i * num_node:(i + 1) * num_node,
                 j * num_node:(j + 1) * num_node] = self.delta_t** abs(i - j)
-        position_matrix = np.zeros((self.num_patch * num_node, self.num_patch * num_node))
-        for i in range(0, self.num_patch * num_node):
-            for j in range(0, self.num_patch * num_node):
+        position_matrix = np.zeros((self.num_slice * num_node, self.num_slice * num_node))
+        for i in range(0, self.num_slice * num_node):
+            for j in range(0, self.num_slice * num_node):
                 if i % num_node == j % num_node:
                     position_matrix[i, j] = 1
                 else:
