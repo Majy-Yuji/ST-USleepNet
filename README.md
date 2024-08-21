@@ -1,4 +1,4 @@
-# REAME
+# README
 
 This README provides a step-by-step guide on how to run the model using the `ISRUC-S3` dataset.
 
